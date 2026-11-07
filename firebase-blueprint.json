@@ -1,0 +1,211 @@
+{
+  "entities": {
+    "Agency": {
+      "title": "Agency",
+      "description": "Travel agency partner registered on TBO OpsDesk",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "region": { "type": "string" },
+        "tier": { "type": "string" },
+        "contactPerson": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "activeBookingsCount": { "type": "number" },
+        "totalCasesCount": { "type": "number" },
+        "openComplaintsCount": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "code", "region", "email"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Traveler or primary passenger associated with bookings and cases",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "agencyId": { "type": "string" },
+        "vipStatus": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "agencyId"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "Travel booking made through TBO (Hotel, Flight, Transfer, Activity)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "bookingReference": { "type": "string" },
+        "agencyId": { "type": "string" },
+        "agencyName": { "type": "string" },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "type": { "type": "string" },
+        "serviceName": { "type": "string" },
+        "destination": { "type": "string" },
+        "checkInDate": { "type": "string" },
+        "checkOutDate": { "type": "string" },
+        "lastCancellationDate": { "type": "string" },
+        "supplier": { "type": "string" },
+        "bookingStatus": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" }
+      },
+      "required": ["id", "bookingReference", "agencyId", "type", "destination", "checkInDate"]
+    },
+    "UnifiedCase": {
+      "title": "UnifiedCase",
+      "description": "Operational case grouping related tickets by agency, booking and context",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "caseNumber": { "type": "string" },
+        "title": { "type": "string" },
+        "agencyId": { "type": "string" },
+        "agencyName": { "type": "string" },
+        "agencyRegion": { "type": "string" },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "bookingId": { "type": "string" },
+        "bookingReference": { "type": "string" },
+        "destination": { "type": "string" },
+        "status": { "type": "string" },
+        "priority": { "type": "string" },
+        "category": { "type": "string" },
+        "assignedAgentId": { "type": "string" },
+        "assignedAgentName": { "type": "string" },
+        "ticketIds": { "type": "array" },
+        "slaDeadline": { "type": "string" },
+        "slaRiskLevel": { "type": "string" },
+        "isEscalated": { "type": "boolean" },
+        "escalationReason": { "type": "string" },
+        "checkInDate": { "type": "string" },
+        "lastCancellationDate": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "resolvedAt": { "type": "string" }
+      },
+      "required": ["id", "caseNumber", "title", "agencyId", "status", "priority", "category"]
+    },
+    "Ticket": {
+      "title": "Ticket",
+      "description": "Individual complaint or task linked to a unified case",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "ticketNumber": { "type": "string" },
+        "caseId": { "type": "string" },
+        "bookingReference": { "type": "string" },
+        "category": { "type": "string" },
+        "subject": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string" },
+        "priority": { "type": "string" },
+        "assignedAgentId": { "type": "string" },
+        "assignedAgentName": { "type": "string" },
+        "source": { "type": "string" },
+        "resolutionNotes": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "resolvedAt": { "type": "string" }
+      },
+      "required": ["id", "ticketNumber", "caseId", "category", "subject", "status", "priority"]
+    },
+    "SupportAgent": {
+      "title": "SupportAgent",
+      "description": "Operations team member with skills, region coverage and workload capacity",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "regions": { "type": "array" },
+        "expertise": { "type": "array" },
+        "activeCases": { "type": "number" },
+        "maxCapacity": { "type": "number" },
+        "availability": { "type": "string" },
+        "avgResolutionMinutes": { "type": "number" },
+        "slaComplianceRate": { "type": "number" }
+      },
+      "required": ["id", "name", "email", "role", "availability"]
+    },
+    "Communication": {
+      "title": "Communication",
+      "description": "Message, email, supplier query or internal note with continuity preservation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "caseId": { "type": "string" },
+        "ticketId": { "type": "string" },
+        "type": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderRole": { "type": "string" },
+        "senderType": { "type": "string" },
+        "recipient": { "type": "string" },
+        "recipientsList": { "type": "array" },
+        "subject": { "type": "string" },
+        "content": { "type": "string" },
+        "isInternal": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "caseId", "type", "senderName", "content", "createdAt"]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "Audit trail of actions taken on a case or ticket",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "caseId": { "type": "string" },
+        "ticketId": { "type": "string" },
+        "actorName": { "type": "string" },
+        "actorRole": { "type": "string" },
+        "actionType": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "caseId", "actorName", "actionType", "details", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/agencies/{agencyId}": {
+      "schema": { "$ref": "#/entities/Agency" },
+      "description": "List of travel agencies"
+    },
+    "/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/Customer" },
+      "description": "Customer profiles"
+    },
+    "/bookings/{bookingId}": {
+      "schema": { "$ref": "#/entities/Booking" },
+      "description": "Travel bookings"
+    },
+    "/cases/{caseId}": {
+      "schema": { "$ref": "#/entities/UnifiedCase" },
+      "description": "Unified operational cases"
+    },
+    "/tickets/{ticketId}": {
+      "schema": { "$ref": "#/entities/Ticket" },
+      "description": "Individual complaints and support tickets"
+    },
+    "/agents/{agentId}": {
+      "schema": { "$ref": "#/entities/SupportAgent" },
+      "description": "Support operations agents"
+    },
+    "/communications/{commId}": {
+      "schema": { "$ref": "#/entities/Communication" },
+      "description": "Communication threads and audit notes"
+    },
+    "/activityLogs/{logId}": {
+      "schema": { "$ref": "#/entities/ActivityLog" },
+      "description": "Operations activity trail"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "OpsDesk — Intelligent Travel Operations Management System",
+  "description": "Enterprise travel operations and customer support management system for TBO support teams with unified cases, travel-aware SLA monitoring, smart routing, and operational insights.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

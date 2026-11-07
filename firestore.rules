@@ -1,0 +1,59 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    // Default deny for unlisted documents
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Operational collections
+    match /agencies/{agencyId} {
+      allow read: if isValidId(agencyId);
+      allow write: if isValidId(agencyId);
+    }
+
+    match /customers/{customerId} {
+      allow read: if isValidId(customerId);
+      allow write: if isValidId(customerId);
+    }
+
+    match /bookings/{bookingId} {
+      allow read: if isValidId(bookingId);
+      allow write: if isValidId(bookingId);
+    }
+
+    match /cases/{caseId} {
+      allow read: if isValidId(caseId);
+      allow write: if isValidId(caseId);
+    }
+
+    match /tickets/{ticketId} {
+      allow read: if isValidId(ticketId);
+      allow write: if isValidId(ticketId);
+    }
+
+    match /agents/{agentId} {
+      allow read: if isValidId(agentId);
+      allow write: if isValidId(agentId);
+    }
+
+    match /communications/{commId} {
+      allow read: if isValidId(commId);
+      allow write: if isValidId(commId);
+    }
+
+    match /activityLogs/{logId} {
+      allow read: if isValidId(logId);
+      allow write: if isValidId(logId);
+    }
+
+    match /test/{docId} {
+      allow read, write: if isValidId(docId);
+    }
+  }
+}
