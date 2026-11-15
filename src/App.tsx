@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Sidebar, NavModule } from './components/Sidebar';
 import { Header } from './components/Header';
 import { ScenarioBanner } from './components/ScenarioBanner';
@@ -11,12 +11,69 @@ import { CommunicationsModule } from './modules/CommunicationsModule';
 import { InsightsModule } from './modules/InsightsModule';
 import { CaseDetailModal } from './components/CaseDetailModal';
 import { CreateTicketModal } from './components/CreateTicketModal';
+import { AuthPage, AuthMode } from './components/AuthPage';
+import { EmailVerificationModal } from './components/EmailVerificationModal';
+import { useAuth } from './contexts/AuthContext';
 import { dataService } from './services/dataService';
 import { UnifiedCase, Ticket } from './types';
-import { CheckCircle2, RotateCcw } from 'lucide-react';
+import { CheckCircle2, Plane } from 'lucide-react';
+
+const PROTECTED_PATHS: Record<string, NavModule> = {
+  '/dashboard': 'dashboard',
+  '/cases': 'cases',
+  '/agencies': 'agencies',
+  '/routing': 'routing',
+  '/sla': 'sla',
+  '/communications': 'communications',
+  '/insights': 'insights',
+};
+
+const MODULE_TO_PATH: Record<NavModule, string> = {
+  dashboard: '/dashboard',
+  cases: '/cases',
+  agencies: '/agencies',
+  routing: '/routing',
+  sla: '/sla',
+  communications: '/communications',
+  insights: '/insights',
+};
+
+function getAuthModeFromPath(pathname: string): AuthMode | null {
+  const clean = pathname.toLowerCase().replace(/\/+$/, '') || '/';
+  if (clean === '/signin' || clean === '/login') return 'signin';
+  if (clean === '/signup' || clean === '/register') return 'signup';
+  if (clean === '/forgot-password') return 'forgot';
+  return null;
+}
+
+function getAuthPathFromMode(mode: AuthMode): string {
+  if (mode === 'signup') return '/signup';
+  if (mode === 'forgot') return '/forgot-password';
+  return '/signin';
+}
+
+function getProtectedModuleFromPath(pathname: string): NavModule | null {
+  const clean = pathname.toLowerCase().replace(/\/+$/, '') || '/';
+  return PROTECTED_PATHS[clean] || null;
+}
 
 export default function App() {
-  const [activeModule, setActiveModule] = useState<NavModule>('dashboard');
+  const { user, userProfile, emailVerified, loading, logout } = useAuth();
+  const isAuthorized = Boolean(user && emailVerified);
+
+  // Route & auth view state
+  const initialPath = typeof window !== 'undefined' ? window.location.pathname : '/';
+  const initialProtected = getProtectedModuleFromPath(initialPath);
+  const initialAuthMode = getAuthModeFromPath(initialPath);
+
+  const [activeModule, setActiveModule] = useState<NavModule>(initialProtected || 'dashboard');
+  const [intendedModule, setIntendedModule] = useState<NavModule | null>(initialProtected);
+  const [authMode, setAuthMode] = useState<AuthMode>(initialAuthMode || 'signin');
+  const [redirectNotice, setRedirectNotice] = useState<string | null>(
+    initialProtected ? 'Please sign in to access OpsDesk protected operations.' : null
+  );
+
+  // Workspace modal & filter states
   const [selectedCase, setSelectedCase] = useState<UnifiedCase | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -34,6 +91,116 @@ export default function App() {
   const [agents, setAgents] = useState(() => dataService.getAgents());
   const [activityLogs, setActivityLogs] = useState(() => dataService.getAllActivityLogs());
 
+  // Navigate to a protected module and keep browser URL in sync
+  const navigateToModule = useCallback(
+    (mod: NavModule) => {
+      if (!isAuthorized) {
+        setIntendedModule(mod);
+        setAuthMode('signin');
+        setRedirectNotice(
+          user && !emailVerified
+            ? 'Please verify your email address before accessing OpsDesk operations.'
+            : 'Please sign in to access OpsDesk protected operations.'
+        );
+        if (typeof window !== 'undefined' && window.location.pathname !== '/signin') {
+          window.history.pushState({}, '', '/signin');
+        }
+        return;
+      }
+      setActiveModule(mod);
+      const targetPath = MODULE_TO_PATH[mod];
+      if (typeof window !== 'undefined' && window.location.pathname !== targetPath) {
+        window.history.pushState({}, '', targetPath);
+      }
+    },
+    [isAuthorized, user, emailVerified]
+  );
+
+  const handleAuthModeChange = useCallback((nextMode: AuthMode) => {
+    setAuthMode(nextMode);
+    setRedirectNotice(null);
+    const targetPath = getAuthPathFromMode(nextMode);
+    if (typeof window !== 'undefined' && window.location.pathname !== targetPath) {
+      window.history.pushState({}, '', targetPath);
+    }
+  }, []);
+
+  // Enforce route protection when auth or email verification state changes
+  useEffect(() => {
+    if (loading || typeof window === 'undefined') return;
+
+    const currentPath = window.location.pathname;
+    const pathAuthMode = getAuthModeFromPath(currentPath);
+    const pathProtectedModule = getProtectedModuleFromPath(currentPath);
+
+    if (!isAuthorized) {
+      // Unauthenticated or unverified: block direct URL access to protected pages
+      if (pathProtectedModule) {
+        setIntendedModule(pathProtectedModule);
+        setRedirectNotice(
+          user && !emailVerified
+            ? 'Please verify your email address before accessing OpsDesk operations.'
+            : 'Please sign in to access OpsDesk protected operations.'
+        );
+      }
+      if (!pathAuthMode) {
+        setAuthMode('signin');
+        window.history.replaceState({}, '', '/signin');
+      }
+    } else {
+      // Authenticated & verified: redirect away from auth/root paths into protected dashboard or intended module
+      if (pathAuthMode || currentPath === '/' || !pathProtectedModule) {
+        const target = intendedModule || 'dashboard';
+        setActiveModule(target);
+        setIntendedModule(null);
+        setRedirectNotice(null);
+        window.history.replaceState({}, '', MODULE_TO_PATH[target]);
+      } else {
+        setActiveModule(pathProtectedModule);
+        setRedirectNotice(null);
+      }
+    }
+  }, [isAuthorized, user, emailVerified, loading, intendedModule]);
+
+  // Listen to browser Back / Forward navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      const pathname = window.location.pathname;
+      const pathAuthMode = getAuthModeFromPath(pathname);
+      const pathProtectedModule = getProtectedModuleFromPath(pathname);
+
+      if (!isAuthorized) {
+        if (pathProtectedModule) {
+          setIntendedModule(pathProtectedModule);
+          setRedirectNotice(
+            user && !emailVerified
+              ? 'Please verify your email address before accessing OpsDesk operations.'
+              : 'Please sign in to access OpsDesk protected operations.'
+          );
+          setAuthMode('signin');
+          window.history.replaceState({}, '', '/signin');
+        } else if (pathAuthMode) {
+          setAuthMode(pathAuthMode);
+        } else {
+          setAuthMode('signin');
+          window.history.replaceState({}, '', '/signin');
+        }
+      } else {
+        if (pathProtectedModule) {
+          setActiveModule(pathProtectedModule);
+        } else {
+          setActiveModule('dashboard');
+          window.history.replaceState({}, '', '/dashboard');
+        }
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [isAuthorized, user, emailVerified]);
+
   // Subscribe to dataService mutations
   useEffect(() => {
     const unsubscribe = dataService.subscribe(() => {
@@ -46,7 +213,6 @@ export default function App() {
       setAgents(dataService.getAgents());
       setActivityLogs(dataService.getAllActivityLogs());
 
-      // Update selectedCase reference if open
       if (selectedCase) {
         const updated = refreshedCases.find((c) => c.id === selectedCase.id);
         if (updated) setSelectedCase(updated);
@@ -58,37 +224,32 @@ export default function App() {
     };
   }, [selectedCase]);
 
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 5000);
+  };
+
   // Hackathon Scenario Trigger handler
   const handleTriggerScenario = (num: number) => {
     setCurrentScenario(num);
 
     if (num === 1) {
-      // Scenario 1: ABC Travels (TR123) Unified Case with 3 connected complaints
       const tr123Case = cases.find((c) => c.bookingReference === 'TR123') || cases[0];
       setSelectedCase(tr123Case);
       showToast('Scenario 1 Active: Unified Case for ABC Travels (Booking TR123, Bhavya Karnati) with 3 connected tickets.');
     } else if (num === 2) {
-      // Scenario 2: Smart Routing Recommendation with transparent scoring
-      setActiveModule('routing');
+      navigateToModule('routing');
       showToast('Scenario 2 Active: Transparent Smart Routing score evaluated for Agent Priya Sharma.');
     } else if (num === 3) {
-      // Scenario 3: Handoff Continuity & Preserved Recipients
-      setActiveModule('communications');
+      navigateToModule('communications');
       showToast('Scenario 3 Active: Transfer Continuity thread with preserved recipient list & handoff notes.');
     } else if (num === 4) {
-      // Scenario 4: Travel-Aware SLA Imminent Check-in Countdown & Escalation
-      setActiveModule('sla');
+      navigateToModule('sla');
       showToast('Scenario 4 Active: Imminent check-in countdown (<2h) & Duty Manager escalation monitor.');
     } else if (num === 5) {
-      // Scenario 5: Operational Insights & CSV Export
-      setActiveModule('insights');
+      navigateToModule('insights');
       showToast('Scenario 5 Active: Systemic repeated failure detection & operational CSV report export.');
     }
-  };
-
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 5000);
   };
 
   const handleResetData = () => {
@@ -110,9 +271,67 @@ export default function App() {
   const handleHeaderSearch = (q: string) => {
     setSearchQuery(q);
     if (q.trim() && activeModule !== 'cases') {
-      setActiveModule('cases');
+      navigateToModule('cases');
     }
   };
+
+  const handleSignOut = async () => {
+    setSelectedCase(null);
+    setIsCreateModalOpen(false);
+    setCurrentScenario(null);
+    setSearchQuery('');
+    setIntendedModule(null);
+    setRedirectNotice(null);
+    await logout();
+    setAuthMode('signin');
+    if (typeof window !== 'undefined') {
+      window.history.replaceState({}, '', '/signin');
+    }
+  };
+
+  // Loading Splash while Firebase Auth checks persisted session
+  if (loading) {
+    return (
+      <div className="min-h-screen w-screen bg-[#F1F5FA] flex items-center justify-center p-6">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 flex flex-col items-center gap-4 max-w-sm w-full text-center">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#20A89E] to-[#4267D5] flex items-center justify-center text-white shadow-md animate-pulse">
+            <Plane className="w-6 h-6 -rotate-45" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-[#263B5B]">OpsDesk Security Check</h2>
+            <p className="text-xs text-slate-500 mt-1">
+              Verifying authenticated Firebase session...
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Unauthenticated or unverified users cannot access OpsDesk modules
+  if (!user || !emailVerified) {
+    return (
+      <>
+        <AuthPage
+          mode={authMode}
+          onChangeMode={handleAuthModeChange}
+          redirectNotice={redirectNotice}
+        />
+        {user && !emailVerified && (
+          <EmailVerificationModal
+            isOpen={true}
+            email={user.email || ''}
+            userName={userProfile?.name || user.displayName || undefined}
+          />
+        )}
+      </>
+    );
+  }
+
+  const operatorName =
+    userProfile?.name || user.displayName || user.email?.split('@')[0] || 'TBO Operator';
+  const operatorEmail = userProfile?.email || user.email || '';
+  const operatorRole = userProfile?.role || 'agent';
 
   // Urgent cases for header
   const urgentCases = cases.filter(
@@ -129,7 +348,7 @@ export default function App() {
       <Sidebar
         activeModule={activeModule}
         onSelectModule={(mod) => {
-          setActiveModule(mod);
+          navigateToModule(mod);
           setSearchQuery('');
         }}
         openCasesCount={openCasesCount}
@@ -151,6 +370,10 @@ export default function App() {
           }}
           urgentCases={urgentCases}
           onSelectCase={(cs) => setSelectedCase(cs)}
+          userName={operatorName}
+          userEmail={operatorEmail}
+          userRole={operatorRole}
+          onSignOut={handleSignOut}
         />
 
         {/* VoyageHack 4.0 Demonstration Quick Switcher Banner */}
@@ -185,7 +408,7 @@ export default function App() {
               agencies={agencies}
               activityLogs={activityLogs}
               onSelectCase={(cs) => setSelectedCase(cs)}
-              onNavigateToModule={(mod) => setActiveModule(mod)}
+              onNavigateToModule={(mod) => navigateToModule(mod)}
             />
           )}
 
@@ -230,6 +453,7 @@ export default function App() {
               cases={cases}
               agents={agents}
               onSelectCase={(cs) => setSelectedCase(cs)}
+              currentUserName={operatorName}
             />
           )}
 
@@ -254,7 +478,8 @@ export default function App() {
           bookings={bookings}
           agents={agents}
           onOpenCreateTicketForCase={handleOpenCreateForCase}
-          onNavigateToModule={(mod) => setActiveModule(mod)}
+          onNavigateToModule={(mod) => navigateToModule(mod)}
+          currentUserName={operatorName}
         />
       )}
 

@@ -172,9 +172,42 @@
         "timestamp": { "type": "string" }
       },
       "required": ["id", "caseId", "actorName", "actionType", "details", "timestamp"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated OpsDesk operator profile stored in Firestore",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 200 },
+        "role": { "type": "string", "enum": ["agent", "lead"] },
+        "department": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "name", "email", "role", "createdAt", "updatedAt"]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Trusted server-provisioned admin registry document",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "grantedAt": { "type": "string" }
+      },
+      "required": ["uid"]
     }
   },
   "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Authenticated OpsDesk user profiles (non-admin by default)"
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Trusted administrator UID registry (read-only from client)"
+    },
     "/agencies/{agencyId}": {
       "schema": { "$ref": "#/entities/Agency" },
       "description": "List of travel agencies"

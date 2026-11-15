@@ -175,3 +175,13 @@ export interface SmartRoutingScore {
   reasons: string[];
   isRecommended: boolean;
 }
+
+export interface UserProfile {
+  uid: string;
+  name: string;
+  email: string;
+  role: 'agent' | 'lead' | 'admin';
+  department?: string;
+  createdAt: string;
+  updatedAt: string;
+}

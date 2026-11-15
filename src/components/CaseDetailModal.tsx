@@ -43,6 +43,7 @@ interface CaseDetailModalProps {
   agents: SupportAgent[];
   onOpenCreateTicketForCase: (caseId: string, bookingRef: string) => void;
   onNavigateToModule: (module: any) => void;
+  currentUserName?: string;
 }
 
 export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
@@ -54,6 +55,7 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
   agents,
   onOpenCreateTicketForCase,
   onNavigateToModule,
+  currentUserName = 'TBO Duty Lead',
 }) => {
   if (!caseItem) return null;
 
@@ -97,8 +99,8 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
     dataService.addCommunication({
       caseId: caseItem.id,
       type: 'Internal Note',
-      senderName: 'Bhavya K.',
-      senderRole: 'TBO Duty Lead',
+      senderName: currentUserName,
+      senderRole: 'TBO Operations',
       senderType: 'TBO Agent',
       recipient: 'Internal Operations Team',
       recipientsList: ['opsdesk@tbo.com', caseItem.assignedAgentName],
@@ -109,8 +111,8 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
 
     dataService.addActivityLog({
       caseId: caseItem.id,
-      actorName: 'Bhavya K.',
-      actorRole: 'Duty Lead',
+      actorName: currentUserName,
+      actorRole: 'Operations Lead',
       actionType: 'Note Added',
       details: newNote.trim(),
     });
@@ -121,14 +123,14 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
   const handleExecuteTransfer = () => {
     if (!selectedAgentId || selectedAgentId === caseItem.assignedAgentId) return;
     const note = transferHandoffNotes.trim() || 'Operational reassignment for workload balancing and expertise match.';
-    dataService.transferCase(caseItem.id, selectedAgentId, note, 'Bhavya K.');
+    dataService.transferCase(caseItem.id, selectedAgentId, note, currentUserName);
     setShowTransferConfirm(false);
     setTransferHandoffNotes('');
   };
 
   const handleExecuteEscalation = () => {
     if (!escalationReason.trim()) return;
-    dataService.escalateCase(caseItem.id, escalationReason.trim(), 'Bhavya K.');
+    dataService.escalateCase(caseItem.id, escalationReason.trim(), currentUserName);
     setIsEscalating(false);
     setEscalationReason('');
   };
@@ -480,7 +482,7 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
                 />
                 <div className="flex justify-between items-center mt-2">
                   <span className="text-[11px] text-slate-400">
-                    Logged under Bhavya K. (TBO Duty Lead)
+                    Logged under {currentUserName} (TBO Operations)
                   </span>
                   <button
                     type="submit"

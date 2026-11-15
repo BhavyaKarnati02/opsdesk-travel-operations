@@ -20,12 +20,14 @@ interface CommunicationsModuleProps {
   cases: UnifiedCase[];
   agents: SupportAgent[];
   onSelectCase: (caseItem: UnifiedCase) => void;
+  currentUserName?: string;
 }
 
 export const CommunicationsModule: React.FC<CommunicationsModuleProps> = ({
   cases,
   agents,
   onSelectCase,
+  currentUserName = 'TBO Duty Lead',
 }) => {
   const [selectedCaseId, setSelectedCaseId] = useState<string>(cases[0]?.id || '');
   const [messageType, setMessageType] = useState<'Agency' | 'Supplier' | 'Internal Note'>('Agency');
@@ -57,8 +59,8 @@ export const CommunicationsModule: React.FC<CommunicationsModuleProps> = ({
     dataService.addCommunication({
       caseId: currentCase.id,
       type: messageType,
-      senderName: 'Bhavya K.',
-      senderRole: 'TBO Duty Lead',
+      senderName: currentUserName,
+      senderRole: 'TBO Operations',
       senderType: 'TBO Agent',
       recipient,
       recipientsList,
@@ -69,8 +71,8 @@ export const CommunicationsModule: React.FC<CommunicationsModuleProps> = ({
 
     dataService.addActivityLog({
       caseId: currentCase.id,
-      actorName: 'Bhavya K.',
-      actorRole: 'Duty Lead',
+      actorName: currentUserName,
+      actorRole: 'Operations Lead',
       actionType: 'Note Added',
       details: `Dispatched ${messageType} communication: "${subject.trim() || 'Operational Update'}"`,
     });
@@ -307,7 +309,7 @@ export const CommunicationsModule: React.FC<CommunicationsModuleProps> = ({
 
               <div className="flex items-center justify-between pt-1">
                 <span className="text-[11px] text-slate-400">
-                  Transmitting as <strong>Bhavya K. (TBO Duty Lead)</strong>
+                  Transmitting as <strong>{currentUserName} (TBO Operations)</strong>
                 </span>
 
                 <button

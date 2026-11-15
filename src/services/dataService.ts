@@ -22,7 +22,7 @@ import {
   SEED_COMMUNICATIONS,
   SEED_ACTIVITY_LOGS,
 } from '../data/seedData';
-import { db, handleFirestoreError, OperationType } from '../firebase/config';
+import { db, auth, handleFirestoreError, OperationType } from '../firebase/config';
 import { doc, setDoc, getDocs, collection, writeBatch } from 'firebase/firestore';
 
 class DataService {
@@ -62,7 +62,16 @@ class DataService {
       // Fallback
     }
 
-    this.resetToSeed();
+    this.agencies = JSON.parse(JSON.stringify(SEED_AGENCIES));
+    this.customers = JSON.parse(JSON.stringify(SEED_CUSTOMERS));
+    this.bookings = JSON.parse(JSON.stringify(SEED_BOOKINGS));
+    this.cases = JSON.parse(JSON.stringify(SEED_CASES));
+    this.tickets = JSON.parse(JSON.stringify(SEED_TICKETS));
+    this.agents = JSON.parse(JSON.stringify(SEED_AGENTS));
+    this.communications = JSON.parse(JSON.stringify(SEED_COMMUNICATIONS));
+    this.activityLogs = JSON.parse(JSON.stringify(SEED_ACTIVITY_LOGS));
+    this.isInitialized = true;
+    this.saveToStorage();
   }
 
   private saveToStorage() {
@@ -84,9 +93,25 @@ class DataService {
     this.notify();
   }
 
-  public async syncToFirestore() {
+  public async initAuthenticatedSync() {
+    if (!auth.currentUser) return;
     try {
-      // Seed initial data if Firestore is accessible
+      const casesSnap = await getDocs(collection(db, 'cases'));
+      if (!casesSnap.empty) {
+        // Existing data found in Firestore — pull without overwriting
+        await this.pullFromFirestore();
+      } else {
+        // Firestore is empty — seed initial demo records safely
+        await this.syncToFirestore();
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.LIST, 'cases');
+    }
+  }
+
+  public async syncToFirestore() {
+    if (!auth.currentUser) return;
+    try {
       const batch = writeBatch(db);
       for (const ag of this.agencies) {
         batch.set(doc(db, 'agencies', ag.id), ag, { merge: true });
@@ -101,22 +126,50 @@ class DataService {
         batch.set(doc(db, 'agents', agt.id), agt, { merge: true });
       }
       await batch.commit();
-      console.log('OpsDesk synced to Firestore successfully.');
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'batch-sync');
     }
   }
 
   public async pullFromFirestore() {
+    if (!auth.currentUser) return;
     try {
-      const casesSnap = await getDocs(collection(db, 'cases'));
+      const [casesSnap, ticketsSnap, agentsSnap, agenciesSnap, commsSnap, logsSnap] = await Promise.all([
+        getDocs(collection(db, 'cases')),
+        getDocs(collection(db, 'tickets')),
+        getDocs(collection(db, 'agents')),
+        getDocs(collection(db, 'agencies')),
+        getDocs(collection(db, 'communications')),
+        getDocs(collection(db, 'activityLogs')),
+      ]);
+
+      let updated = false;
       if (!casesSnap.empty) {
-        const remoteCases: UnifiedCase[] = [];
-        casesSnap.forEach((d) => remoteCases.push(d.data() as UnifiedCase));
-        if (remoteCases.length > 0) {
-          this.cases = remoteCases;
-          this.saveToStorage();
-        }
+        this.cases = casesSnap.docs.map((d) => d.data() as UnifiedCase);
+        updated = true;
+      }
+      if (!ticketsSnap.empty) {
+        this.tickets = ticketsSnap.docs.map((d) => d.data() as Ticket);
+        updated = true;
+      }
+      if (!agentsSnap.empty) {
+        this.agents = agentsSnap.docs.map((d) => d.data() as SupportAgent);
+        updated = true;
+      }
+      if (!agenciesSnap.empty) {
+        this.agencies = agenciesSnap.docs.map((d) => d.data() as Agency);
+        updated = true;
+      }
+      if (!commsSnap.empty) {
+        this.communications = commsSnap.docs.map((d) => d.data() as Communication);
+        updated = true;
+      }
+      if (!logsSnap.empty) {
+        this.activityLogs = logsSnap.docs.map((d) => d.data() as ActivityLog);
+        updated = true;
+      }
+      if (updated) {
+        this.saveToStorage();
       }
     } catch (err) {
       handleFirestoreError(err, OperationType.LIST, 'cases');
@@ -135,7 +188,9 @@ class DataService {
     this.activityLogs = JSON.parse(JSON.stringify(SEED_ACTIVITY_LOGS));
     this.isInitialized = true;
     this.saveToStorage();
-    this.syncToFirestore().catch(() => {});
+    if (auth.currentUser) {
+      this.syncToFirestore().catch(() => {});
+    }
   }
 
   public subscribe(fn: () => void): () => void {
@@ -476,7 +531,7 @@ class DataService {
         slaRiskLevel: 'Safe',
         isEscalated: false,
         checkInDate: booking ? booking.checkInDate : new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
-        lastCancellationDate: booking?.lastCancellationDate,
+        ...(booking?.lastCancellationDate ? { lastCancellationDate: booking.lastCancellationDate } : {}),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -604,13 +659,15 @@ class DataService {
     };
     this.communications.unshift(newComm);
 
-    // Save to Firestore
-    try {
-      setDoc(doc(db, 'communications', newComm.id), newComm).catch((err) =>
-        handleFirestoreError(err, OperationType.CREATE, 'communications')
-      );
-    } catch {
-      //
+    // Save to Firestore when authenticated
+    if (auth.currentUser) {
+      try {
+        setDoc(doc(db, 'communications', newComm.id), newComm).catch((err) =>
+          handleFirestoreError(err, OperationType.CREATE, 'communications')
+        );
+      } catch {
+        //
+      }
     }
 
     this.saveToStorage();
@@ -625,17 +682,20 @@ class DataService {
     };
     this.activityLogs.unshift(newLog);
 
-    try {
-      setDoc(doc(db, 'activityLogs', newLog.id), newLog).catch((err) =>
-        handleFirestoreError(err, OperationType.CREATE, 'activityLogs')
-      );
-    } catch {
-      //
+    if (auth.currentUser) {
+      try {
+        setDoc(doc(db, 'activityLogs', newLog.id), newLog).catch((err) =>
+          handleFirestoreError(err, OperationType.CREATE, 'activityLogs')
+        );
+      } catch {
+        //
+      }
     }
   }
 
   // --- Background Firestore Helpers ---
   private persistCase(cs: UnifiedCase) {
+    if (!auth.currentUser) return;
     try {
       setDoc(doc(db, 'cases', cs.id), cs, { merge: true }).catch((err) =>
         handleFirestoreError(err, OperationType.UPDATE, `cases/${cs.id}`)
@@ -646,6 +706,7 @@ class DataService {
   }
 
   private persistTicket(t: Ticket) {
+    if (!auth.currentUser) return;
     try {
       setDoc(doc(db, 'tickets', t.id), t, { merge: true }).catch((err) =>
         handleFirestoreError(err, OperationType.UPDATE, `tickets/${t.id}`)
@@ -656,6 +717,7 @@ class DataService {
   }
 
   private persistAgent(a: SupportAgent) {
+    if (!auth.currentUser) return;
     try {
       setDoc(doc(db, 'agents', a.id), a, { merge: true }).catch((err) =>
         handleFirestoreError(err, OperationType.UPDATE, `agents/${a.id}`)

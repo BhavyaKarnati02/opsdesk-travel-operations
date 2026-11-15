@@ -1,59 +1,254 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper functions
-    function isValidId(id) {
-      return id is string && id.size() > 0 && id.size() <= 128;
+
+    // =========================================================================
+    // Global Security Primitives
+    // =========================================================================
+    function isSignedIn() {
+      return request.auth != null;
     }
 
-    // Default deny for unlisted documents
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Default deny catch-all for any unlisted path
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Operational collections
+    // =========================================================================
+    // User Profiles & Trusted Admin Registry
+    // =========================================================================
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'name', 'email', 'role', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'name', 'email', 'role', 'department', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == request.auth.uid && data.uid.size() <= 128
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 200
+        && data.role is string && data.role in ['agent', 'lead', 'admin']
+        && (!('department' in data) || (data.department is string && data.department.size() <= 100));
+    }
+
+    match /admins/{adminId} {
+      allow get: if isOwner(adminId);
+      allow list: if false;
+      // Admin privileges cannot be granted or modified from the client SDK
+      allow create, update, delete: if false;
+    }
+
+    match /users/{userId} {
+      // PII isolation: users can only read their own profile; admins can audit
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+
+      // Users can register their own profile with standard 'agent' role ONLY
+      allow create: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming())
+        && incoming().role == 'agent'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      // Users can update display name / department only after verifying email; role, uid, email, createdAt are immutable
+      allow update: if isVerifiedUser()
+        && isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().email == existing().email
+        && incoming().role == existing().role
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'department', 'updatedAt']);
+
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // Operational Collections (Authentication Required)
+    // =========================================================================
+    function isValidAgency(data) {
+      return data.keys().hasAll(['id', 'name', 'code', 'region', 'email'])
+        && data.keys().hasOnly([
+          'id', 'name', 'code', 'region', 'tier', 'contactPerson', 'email',
+          'phone', 'activeBookingsCount', 'totalCasesCount', 'openComplaintsCount', 'createdAt'
+        ])
+        && data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 150
+        && data.code is string && data.code.size() <= 40
+        && data.region is string && data.region.size() <= 80
+        && data.email is string && data.email.size() <= 200;
+    }
+
+    function isValidCustomer(data) {
+      return data.keys().hasAll(['id', 'name', 'email', 'agencyId'])
+        && data.keys().hasOnly(['id', 'name', 'email', 'phone', 'agencyId', 'vipStatus', 'createdAt'])
+        && data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 120
+        && data.email is string && data.email.size() <= 200
+        && data.agencyId is string && data.agencyId.size() <= 128;
+    }
+
+    function isValidBooking(data) {
+      return data.keys().hasAll(['id', 'bookingReference', 'agencyId', 'type', 'destination', 'checkInDate'])
+        && data.keys().hasOnly([
+          'id', 'bookingReference', 'agencyId', 'agencyName', 'customerId', 'customerName',
+          'type', 'serviceName', 'destination', 'checkInDate', 'checkOutDate',
+          'lastCancellationDate', 'supplier', 'bookingStatus', 'amount', 'currency'
+        ])
+        && data.id is string && data.id.size() <= 128
+        && data.bookingReference is string && data.bookingReference.size() <= 64
+        && data.destination is string && data.destination.size() <= 120;
+    }
+
+    function isValidCase(data) {
+      return data.keys().hasAll(['id', 'caseNumber', 'title', 'agencyId', 'status', 'priority', 'category'])
+        && data.keys().hasOnly([
+          'id', 'caseNumber', 'title', 'agencyId', 'agencyName', 'agencyRegion',
+          'customerId', 'customerName', 'bookingId', 'bookingReference', 'destination',
+          'status', 'priority', 'category', 'assignedAgentId', 'assignedAgentName',
+          'ticketIds', 'slaDeadline', 'slaRiskLevel', 'isEscalated', 'escalationReason',
+          'checkInDate', 'lastCancellationDate', 'notes', 'createdAt', 'updatedAt', 'resolvedAt'
+        ])
+        && data.id is string && data.id.size() <= 128
+        && data.caseNumber is string && data.caseNumber.size() <= 64
+        && data.title is string && data.title.size() <= 300
+        && data.status is string && data.status in ['Open', 'In Progress', 'Escalated', 'Pending Supplier', 'Resolved']
+        && data.priority is string && data.priority in ['Low', 'Medium', 'High', 'Critical']
+        && (!('ticketIds' in data) || (data.ticketIds is list && data.ticketIds.size() <= 100));
+    }
+
+    function isValidTicket(data) {
+      return data.keys().hasAll(['id', 'ticketNumber', 'caseId', 'category', 'subject', 'status', 'priority'])
+        && data.keys().hasOnly([
+          'id', 'ticketNumber', 'caseId', 'bookingReference', 'category', 'subject',
+          'description', 'status', 'priority', 'assignedAgentId', 'assignedAgentName',
+          'source', 'resolutionNotes', 'createdAt', 'updatedAt', 'resolvedAt'
+        ])
+        && data.id is string && data.id.size() <= 128
+        && data.ticketNumber is string && data.ticketNumber.size() <= 64
+        && data.subject is string && data.subject.size() <= 300
+        && (!('description' in data) || (data.description is string && data.description.size() <= 5000))
+        && data.status is string && data.status in ['Open', 'Under Investigation', 'Awaiting Supplier', 'Resolved', 'Closed']
+        && data.priority is string && data.priority in ['Low', 'Medium', 'High', 'Critical'];
+    }
+
+    function isValidAgent(data) {
+      return data.keys().hasAll(['id', 'name', 'email', 'role', 'availability'])
+        && data.keys().hasOnly([
+          'id', 'name', 'email', 'role', 'regions', 'expertise', 'activeCases',
+          'maxCapacity', 'availability', 'avgResolutionMinutes', 'slaComplianceRate'
+        ])
+        && data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 120
+        && data.email is string && data.email.size() <= 200
+        && data.availability is string && data.availability in ['Available', 'In Call', 'On Break', 'Offline'];
+    }
+
+    function isValidCommunication(data) {
+      return data.keys().hasAll(['id', 'caseId', 'type', 'senderName', 'content', 'createdAt'])
+        && data.keys().hasOnly([
+          'id', 'caseId', 'ticketId', 'type', 'senderName', 'senderRole', 'senderType',
+          'recipient', 'recipientsList', 'subject', 'content', 'isInternal', 'createdAt'
+        ])
+        && data.id is string && data.id.size() <= 128
+        && data.caseId is string && data.caseId.size() <= 128
+        && data.type is string && data.type in ['Agency', 'Supplier', 'Internal Note']
+        && data.content is string && data.content.size() <= 10000
+        && (!('recipientsList' in data) || (data.recipientsList is list && data.recipientsList.size() <= 50));
+    }
+
+    function isValidActivityLog(data) {
+      return data.keys().hasAll(['id', 'caseId', 'actorName', 'actionType', 'details', 'timestamp'])
+        && data.keys().hasOnly([
+          'id', 'caseId', 'ticketId', 'actorName', 'actorRole', 'actionType', 'details', 'timestamp'
+        ])
+        && data.id is string && data.id.size() <= 128
+        && data.caseId is string && data.caseId.size() <= 128
+        && data.details is string && data.details.size() <= 2000;
+    }
+
     match /agencies/{agencyId} {
-      allow read: if isValidId(agencyId);
-      allow write: if isValidId(agencyId);
+      allow list: if isVerifiedUser();
+      allow get: if isVerifiedUser() && isValidId(agencyId);
+      allow create, update: if isVerifiedUser() && isValidId(agencyId) && isValidAgency(incoming());
+      allow delete: if isAdmin() && isVerifiedUser() && isValidId(agencyId);
     }
 
     match /customers/{customerId} {
-      allow read: if isValidId(customerId);
-      allow write: if isValidId(customerId);
+      allow list: if isVerifiedUser();
+      allow get: if isVerifiedUser() && isValidId(customerId);
+      allow create, update: if isVerifiedUser() && isValidId(customerId) && isValidCustomer(incoming());
+      allow delete: if isAdmin() && isVerifiedUser() && isValidId(customerId);
     }
 
     match /bookings/{bookingId} {
-      allow read: if isValidId(bookingId);
-      allow write: if isValidId(bookingId);
+      allow list: if isVerifiedUser();
+      allow get: if isVerifiedUser() && isValidId(bookingId);
+      allow create, update: if isVerifiedUser() && isValidId(bookingId) && isValidBooking(incoming());
+      allow delete: if isAdmin() && isVerifiedUser() && isValidId(bookingId);
     }
 
     match /cases/{caseId} {
-      allow read: if isValidId(caseId);
-      allow write: if isValidId(caseId);
+      allow list: if isVerifiedUser();
+      allow get: if isVerifiedUser() && isValidId(caseId);
+      allow create, update: if isVerifiedUser() && isValidId(caseId) && isValidCase(incoming());
+      allow delete: if isAdmin() && isVerifiedUser() && isValidId(caseId);
     }
 
     match /tickets/{ticketId} {
-      allow read: if isValidId(ticketId);
-      allow write: if isValidId(ticketId);
+      allow list: if isVerifiedUser();
+      allow get: if isVerifiedUser() && isValidId(ticketId);
+      allow create, update: if isVerifiedUser() && isValidId(ticketId) && isValidTicket(incoming());
+      allow delete: if isAdmin() && isVerifiedUser() && isValidId(ticketId);
     }
 
     match /agents/{agentId} {
-      allow read: if isValidId(agentId);
-      allow write: if isValidId(agentId);
+      allow list: if isVerifiedUser();
+      allow get: if isVerifiedUser() && isValidId(agentId);
+      allow create, update: if isVerifiedUser() && isValidId(agentId) && isValidAgent(incoming());
+      allow delete: if isAdmin() && isVerifiedUser() && isValidId(agentId);
     }
 
     match /communications/{commId} {
-      allow read: if isValidId(commId);
-      allow write: if isValidId(commId);
+      allow list: if isVerifiedUser();
+      allow get: if isVerifiedUser() && isValidId(commId);
+      allow create, update: if isVerifiedUser() && isValidId(commId) && isValidCommunication(incoming());
+      allow delete: if isAdmin() && isVerifiedUser() && isValidId(commId);
     }
 
     match /activityLogs/{logId} {
-      allow read: if isValidId(logId);
-      allow write: if isValidId(logId);
+      allow list: if isVerifiedUser();
+      allow get: if isVerifiedUser() && isValidId(logId);
+      allow create: if isVerifiedUser() && isValidId(logId) && isValidActivityLog(incoming());
+      allow update, delete: if isAdmin() && isVerifiedUser() && isValidId(logId);
     }
 
     match /test/{docId} {
-      allow read, write: if isValidId(docId);
+      allow get: if isVerifiedUser() && isValidId(docId);
+      allow list, create, update, delete: if false;
     }
   }
 }

@@ -1,11 +1,16 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+
+// Explicitly enforce browser local persistence so login sessions survive page refreshes
+setPersistence(auth, browserLocalPersistence).catch((err) => {
+  console.warn('Auth persistence configuration notice:', err?.message || err);
+});
 
 export enum OperationType {
   CREATE = 'create',
@@ -43,6 +48,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 }
 
 export async function testConnection(): Promise<boolean> {
+  if (!auth.currentUser) return false;
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
     return true;
@@ -53,6 +59,3 @@ export async function testConnection(): Promise<boolean> {
     return false;
   }
 }
-
-// Initial boot connection check
-testConnection().catch(() => {});
